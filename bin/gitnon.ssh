@@ -1,0 +1,3 @@
+#!/bin/sh
+
+ssh -i "${GITNON_IDENTITY}"$ -o ProxyCommand="nc -X 5 -x localhost:9050 %h %p" "$@"

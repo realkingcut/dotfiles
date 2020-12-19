@@ -1,0 +1,87 @@
+#!/bin/bash
+
+read_config() {
+  declare gitnon_profile_file="${GITNON_CONFIG_DIR}/${PROFIE}"
+
+  if [ ! -f "${gitnon_profile_file}" ]; then
+    die "Missing configuration file, ${gitnon_profile_file}"
+  fi
+
+  while IFS=$'[ \t]*=[ \t]*' read -r name value; do
+    declare -x "config__${name}"="${value}"
+  done < "${gitnon_profile_file}"
+
+  if [ "${config__name}" == "" ]; then
+    die "Add 'name=<name>' to ${gitnon_profile_file}"
+  fi
+  export GIT_AUTHOR_NAME=${config__name}
+  export GIT_COMMITTER_NAME="${GIT_AUTHOR_NAME}"
+
+  if [ "${config__email}" == "" ]; then
+    die "Add 'email=<email>' to ${gitnon_profile_file}"
+  fi
+  export GIT_AUTHOR_EMAIL=${config__email}
+  export GIT_COMMITTER_EMAIL="${GIT_AUTHOR_EMAIL}"
+
+  export GITNON_IDENTITY="${GITNON_SSH_DIR}/${SSH_KEY}"
+  if ! [ -f "${GITNON_IDENTITY}" ]; then
+    mkdir -m 700 -p "${GITNON_SSH_DIR}"
+    ssh-keygen -a 512 -t ed25519 -f "${GITNON_IDENTITY}" -C "$1"
+  fi
+
+  if [ "${confg_disable_tor_requirement}" == "" ]; then
+    TOR_CHECK="$(curl --socks5 localhost:9050 --socks5-hostname localhost:9050 -s https://check.torproject.org)"
+
+    if [[ ! "${TOR_CHECK}" =~ "Congratulations" ]]; then
+      die "You must run tor or set disable_tor_requirement in ${GITNON_CONFIG_FILE}"
+    fi
+  fi
+}
+
+setup_env() {
+  # Reduce temporal side channel leaks
+  export GIT_AUTHOR_DATE="$(date +%Y-%m-%d) 00:00:00 +0000"
+  export GIT_COMMITTER_DATE="$(date +%Y-%m-%d) 00:00:00 +0000"
+
+  export GIT_SSH="${SOURCE_FILE}.ssh"
+  export GIT_PROXY_COMMAND="${SOURCE_FILE}.proxy"
+
+  # Git respect ALL_PROXY for HTTP clones
+  export ALL_PROXY="socks5://127.0.0.1:9050"
+
+  # FIXME? leaked SSH client version.
+}
+
+setup_ssh() {
+  declare ssh_agent_socket="${GITNON_SSH_DIR}/agent-${SSH_KEY}.$(date +%s)"
+  eval "$(ssh-agent -a "${ssh_agent_socket}")"
+}
+
+cleanup() {
+  eval "$(ssh-agent -k)"
+}
+
+die() {
+  echo "${BIN_NAME}: ${1}"
+  exit 1
+}
+
+if [[ "$1" == "" ]]; then
+  PROFIE="conf"
+  SSH_KEY="identity"
+else
+  PROFIE="$1.conf"
+  SSH_KEY="$1_identity"
+fi
+
+BIN_NAME="$(basename $0)"
+SOURCE_FILE="${BASH_SOURCE[0]}"
+
+GITNON_CONFIG_DIR="${GITNON_CONFIG_DIR-${HOME}/.config/gitnon}"
+GITNON_SSH_DIR="${GITNON_SSH_DIR-${GITNON_CONFIG_DIR}/.ssh}"
+
+read_config
+setup_env
+setup_ssh
+trap cleanup EXIT
+bash --rcfile "${SOURCE_FILE}.bashrc"
