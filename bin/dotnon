@@ -1,0 +1,8 @@
+#!/bin/sh
+
+dot_non() {
+  git --git-dir="${HOME}/.dotnon/" --work-tree="${HOME}" "$@"
+}
+
+dot_non config --local status.showUntrackedFiles no
+dot_non "$@"
